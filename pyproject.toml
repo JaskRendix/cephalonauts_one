@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "cephalonauts_one"
+version = "0.1.0"
+description = "Scripts for the Cephalonauts One fMRI dataset"
+requires-python = ">=3.10"
+dependencies = [
+    "datasets",
+    "huggingface_hub",
+    "joblib",
+    "matplotlib",
+    "nilearn",
+    "numpy",
+    "pandas",
+    "scipy",
+    "seaborn",
+    "sentence-transformers",
+    "torch",
+    "torchaudio",
+    "torchcodec",
+    "tqdm",
+    "transformers",
+]
+
+[tool.setuptools]
+packages = []
