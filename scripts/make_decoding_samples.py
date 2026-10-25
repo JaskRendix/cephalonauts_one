@@ -109,6 +109,7 @@ def build_XY_dataframe(
     audio_context_seconds: float = 10.0,
     audio_model_name: str = "LCO-Embedding/LCO-Embedding-Omni-7B",
     temporal_avg: int = 4,
+    sequence_length: int = 5,  # picked 5 as an initial temporal-context window
 ) -> pd.DataFrame:
     metacols = [
         "sub",
@@ -157,8 +158,24 @@ def build_XY_dataframe(
                 timestamps=timestamps,
                 n_words_context=n_words_context,
             )
+
+            # Preserve a short history of fMRI volumes so future decoders
+            # can explicitly model temporal context.
+            if len(X) < sequence_length:
+                continue
+
+            X_seq = [
+                X[i - sequence_length + 1 : i + 1]
+                for i in range(sequence_length - 1, len(X))
+            ]
+
+            timestamps = timestamps[sequence_length - 1 :]
+            text_samples = text_samples[sequence_length - 1 :]
+            X = X[sequence_length - 1 :]
+
             run = pd.DataFrame({
                 "X": X.tolist(),
+                "X_seq": [seq.tolist() for seq in X_seq],
                 "timestamps": timestamps,
                 "text": text_samples,
             })
@@ -185,7 +202,7 @@ def build_XY_dataframe(
     results["Y_text"] = Y_text.tolist()
 
     # Reorder columns
-    first_cols = ["timestamps", "text", "X", "Y_text", "Y_audio"]
+    first_cols = ["timestamps", "text", "X", "X_seq", "Y_text", "Y_audio"]
     results = results[first_cols + [col for col in results.columns if col not in first_cols]]
 
     return results
