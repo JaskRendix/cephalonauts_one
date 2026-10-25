@@ -31,6 +31,31 @@ class Decoder(nn.Module):
         return self.model(x)
 
 
+class TemporalDecoder(nn.Module):
+    def __init__(
+        self,
+        input_dim: int,
+        output_dim: int,
+        hidden_dim: int,
+        dropout: float,
+    ) -> None:
+        super().__init__()
+
+        self.gru = nn.GRU(
+            input_dim,
+            hidden_dim,
+            batch_first=True,
+        )  # baseline temporal model, nothing clever yet
+
+        self.dropout = nn.Dropout(dropout)
+        self.head = nn.Linear(hidden_dim, output_dim)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        _, h = self.gru(x)
+        h = self.dropout(h[-1])
+        return self.head(h)
+
+
 def get_y(batch: dict[str, torch.Tensor], target: str) -> torch.Tensor:
     """Helper to fetch or concatenate the chosen target."""
     if target == "both":
