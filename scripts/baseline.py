@@ -93,13 +93,13 @@ def compute_retrieval_ranks(
     return ranks
 
 
-def eval_metrics(model, loader, device, target, split_name=""):
+def eval_metrics(model, loader, device, target, split_name="", decoder="mlp"):
     cosine_sims, ranks = [], []
     pbar = tqdm(total=len(loader.dataset) * len(loader), desc=f"Evaluating on {split_name}", leave=False)
     with pbar:
         with torch.inference_mode():
             for batch in tqdm(loader, desc=f"Evaluating {split_name}", leave=False):
-                X = batch["X"].to(device).float()
+                X = (batch["X_seq"] if decoder == "gru" else batch["X"]).to(device).float()
                 Y_true = get_y(batch, target).to(device).float()
                 Y_pred = model(X)
                 pos_sim = F.cosine_similarity(Y_pred, Y_true, dim=-1)
@@ -154,6 +154,7 @@ def train(
     temperature: float = 2e-2,
     bottleneck_dim: int = 4096,
     dropout: float = 0.5,
+    decoder: tp.Literal["mlp", "gru"] = "mlp",
     seed: int = 0,
     device: str | None = None,
 ) -> dict[str, float]:
@@ -205,7 +206,11 @@ def train(
     # Infer model dimensions from one batch.
     sample = next(iter(test_dl))
     y_dim = get_y(sample, target).shape[1]
-    model = Decoder(sample["X"].shape[1], y_dim, bottleneck_dim, dropout).to(device)
+
+    if decoder == "mlp":
+        model = Decoder(sample["X"].shape[1], y_dim, bottleneck_dim, dropout).to(device)
+    else:
+        model = TemporalDecoder(sample["X_seq"].shape[-1], y_dim, bottleneck_dim, dropout).to(device)
     optimizer = torch.optim.AdamW(model.parameters(), lr=lr, weight_decay=weight_decay)
 
     best_val_rank = float("inf")
@@ -218,7 +223,7 @@ def train(
         model.train()
         train_loss = 0.0
         for batch in tqdm(train_dl, desc=f"Epoch {epoch}", leave=False):
-            X = batch["X"].to(device).float()
+            X = (batch["X_seq"] if decoder == "gru" else batch["X"]).to(device).float()
             Y_true = get_y(batch, target).to(device).float()
             optimizer.zero_grad(set_to_none=True)
             loss = clip_loss(model(X), Y_true, temperature)
@@ -227,7 +232,7 @@ def train(
             train_loss += loss.item()
 
         model.eval()
-        val_metrics = eval_metrics(model, val_dl, device, target, split_name="val")
+        val_metrics = eval_metrics(model, val_dl, device, target, split_name="val", decoder=decoder)
         val_rank = val_metrics["Median Relative Rank (↓)"]
         print(
             f"Epoch {epoch:3d} / {max_epochs} | Train Loss (↓): {train_loss / len(train_dl):8.4f} | Val Median Relative Rank (↓): {val_rank:8.4f}"
@@ -245,7 +250,7 @@ def train(
     # Evaluate the best checkpoint on the held-out test split.
     model.load_state_dict(best_state)
     model.eval()
-    test_results = eval_metrics(model, test_dl, device, target, split_name="test")
+    test_results = eval_metrics(model, test_dl, device, target, split_name="test", decoder=decoder)
 
     # Count each source run once when reporting training hours.
     train_runs = dataset["train"].select_columns(["ses", "run", "run_fmri_duration"]).to_pandas()
@@ -278,6 +283,7 @@ if __name__ == "__main__":
     p.add_argument("--temperature", type=float)
     p.add_argument("--bottleneck-dim", type=int)
     p.add_argument("--dropout", type=float)
+    p.add_argument("--decoder", choices=["mlp", "gru"], default="mlp")
     p.add_argument("--device")
 
     train(**vars(p.parse_args()))
